@@ -41,14 +41,12 @@ Y9B8qT5rQ3+Z5C9xTHm1QIDAQAB
 
         let email = create_test_email_structure(email_data, "gmail.com", create_mock_rsa_key());
 
-        let logger = Logger::root(Discard, o!());
-
-        // This should not panic and return a proper Result
+        let logger = Logger::root(Discard, o!()); // This should not panic and return a proper Result
         let result = verify_dkim(&email, &logger);
         match result {
             Ok(_) => {
                 // DKIM verification completed without errors
-                assert!(true, "DKIM verification completed successfully");
+                println!("DKIM verification completed successfully");
             }
             Err(e) => {
                 // Verification failed, which is expected with mock data
@@ -134,7 +132,7 @@ Y9B8qT5rQ3+Z5C9xTHm1QIDAQAB
             }
             Err(_) => {
                 // Error is also acceptable for missing signature
-                assert!(true, "Error handling missing DKIM signature is acceptable");
+                println!("Error handling missing DKIM signature is acceptable");
             }
         }
     }
@@ -152,13 +150,10 @@ Y9B8qT5rQ3+Z5C9xTHm1QIDAQAB
                 create_test_email_structure(email_data.clone(), domain, create_mock_rsa_key());
 
             let logger = Logger::root(Discard, o!());
-            let result = verify_dkim(&email, &logger);
-
-            // Should not panic regardless of domain
+            let result = verify_dkim(&email, &logger); // Should not panic regardless of domain
             match result {
                 Ok(_) | Err(_) => {
-                    assert!(
-                        true,
+                    println!(
                         "DKIM verification handled domain '{}' without panic",
                         domain
                     );
@@ -186,12 +181,10 @@ Y9B8qT5rQ3+Z5C9xTHm1QIDAQAB
         );
 
         let logger = Logger::root(Discard, o!());
-        let result = verify_dkim(&email, &logger);
-
-        // Should handle large emails without performance issues
+        let result = verify_dkim(&email, &logger); // Should handle large emails without performance issues
         match result {
             Ok(_) | Err(_) => {
-                assert!(true, "DKIM verification handled large email appropriately");
+                println!("DKIM verification handled large email appropriately");
             }
         }
     }

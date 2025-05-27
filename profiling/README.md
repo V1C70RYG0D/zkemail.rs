@@ -1,34 +1,185 @@
-# zkemail Profiling Tools
+# zkemail.rs-zkvm Profiling Tools
 
-This module provides comprehensive performance profiling tools for analyzing CPU usage, memory allocation patterns, and performance bottlenecks in zkemail operations.
+This module provides comprehensive performance profiling tools specifically designed for analyzing zkemail operations within Zero-Knowledge Virtual Machines (ZKVMs) including SP1 and RISC0.
 
 ## Overview
 
-The profiling suite consists of:
+The profiling suite focuses on ZKVM-specific metrics and optimizations:
 
-- **CPU Profiling**: Time measurement utilities with automatic reporting
-- **Memory Profiling**: Heap allocation tracking and analysis  
-- **Flamegraph Integration**: Visual CPU usage analysis
-- **Benchmark Suite**: Continuous performance monitoring
+- **ZKVM Cycle Counting**: Precise measurement of computational cycles within zkVMs
+- **Memory Profiling**: ZKVM-specific memory usage analysis and optimization
+- **Cross-ZKVM Benchmarking**: Performance comparison between SP1 and RISC0
+- **Production Integration**: Real proof generation and verification testing
 
 ## Components
 
+### ZKVM Integration
+
+#### SP1 Integration (`sp1/`)
+Complete SP1 zkVM integration with guest programs and host scripts:
+- Guest program for in-zkVM email verification
+- Host scripts for proof generation and execution
+- Cycle counting and performance measurement
+- Production-ready proof generation
+
+#### RISC0 Integration
+RISC0 zkVM integration for comparative analysis:
+- RISC0 guest programs
+- Performance benchmarking
+- Cross-platform compatibility
+
 ### Profiling Binaries
 
-#### `email_profiler`
-Analyzes performance characteristics of core email processing operations:
-- Email parsing performance
-- Body extraction efficiency
-- DKIM signature verification
-- Cryptographic hashing operations
+#### `zkvm_benchmarks`
+Primary ZKVM benchmarking tool for performance analysis:
+- Email verification within actual zkVMs
+- Cycle count measurement and reporting
+- Memory usage analysis in constraint systems
+- Multi-size email testing
 
 ```bash
-cargo run --release --bin email_profiler
+# Run SP1 benchmarks
+cargo run --features sp1 --bin zkvm_benchmarks
+
+# Run RISC0 benchmarks  
+cargo run --features risc0 --bin zkvm_benchmarks
 ```
 
-#### `regex_profiler`
-Profiles regex pattern matching and compilation:
-- Regex compilation performance
+#### `zkvm_demo`
+Interactive demonstration of ZKVM capabilities:
+- Real-time proof generation
+- Verification process demonstration
+- Performance characteristic display
+
+```bash
+cargo run --release --bin zkvm_demo
+```
+
+### ZKVM-Specific Benchmarks
+
+#### SP1 Benchmarks
+Direct SP1 zkVM execution and proof generation:
+
+```bash
+# Execute in SP1 zkVM (no proof)
+cd sp1/script
+cargo run --bin execute
+
+# Generate SP1 proofs
+cargo run --bin prove -- prove --email-size 10
+```
+
+#### Performance Testing
+Comprehensive ZKVM performance analysis:
+
+```bash
+# Run all ZKVM benchmarks
+cargo test --features sp1,risc0 zkvm_optimization_tests
+
+# Memory profiling in ZKVM context
+cargo run --features sp1 --bin memory_analysis
+```
+
+## Quick Start
+
+### 1. Install Dependencies
+
+```bash
+# Install SP1
+curl -L https://sp1.succinct.xyz | bash
+sp1up
+
+# Install RISC0 (optional, for comparison)
+cargo install cargo-risczero
+cargo risczero install
+```
+
+### 2. Build SP1 Integration
+
+```bash
+cd sp1
+./build.sh  # Unix systems
+# or
+build.bat   # Windows systems
+```
+
+### 3. Run ZKVM Benchmarks
+
+```bash
+# Quick benchmark with SP1
+cargo run --features sp1 --bin zkvm_benchmarks
+
+# Comprehensive testing
+cargo test --features sp1 zkvm_optimization_tests
+```
+
+## ZKVM Performance Metrics
+
+The profiling tools provide ZKVM-specific measurements:
+
+- **Cycle Count**: Precise computational cycle measurement within zkVMs
+- **Memory Usage**: Constraint system memory requirements
+- **Proof Size**: Generated proof data size analysis
+- **Verification Time**: Proof verification performance
+- **Cross-ZKVM Comparison**: SP1 vs RISC0 performance analysis
+
+## Architecture
+
+### Guest Programs
+- **SP1 Guest** (`sp1/program/`): Email verification within SP1 zkVM
+- **RISC0 Guest**: Email verification within RISC0 zkVM
+
+### Host Programs  
+- **Provers**: Generate and verify ZK proofs
+- **Executors**: Performance measurement without proof overhead
+- **Benchmarks**: Automated performance testing suites
+
+### Integration
+- **Feature Gates**: Enable specific ZKVM frameworks
+- **Test Suites**: Comprehensive functionality and performance testing
+- **Examples**: Production-ready integration patterns
+
+## Production Usage
+
+For production integration:
+
+1. **Choose ZKVM Framework**: SP1 or RISC0 based on requirements
+2. **Build Guest Programs**: Compile verification logic for target zkVM
+3. **Deploy Host Infrastructure**: Set up proof generation services
+4. **Monitor Performance**: Use profiling tools for optimization
+
+## Testing
+
+```bash
+# Run all ZKVM tests
+cargo test --features sp1,risc0
+
+# Run specific ZKVM functionality tests
+cargo test zkvm_optimization_tests
+
+# Performance regression testing
+cargo test --release zkvm_performance_tests
+```
+
+## Features
+
+- `sp1`: Enable SP1 zkVM integration
+- `risc0`: Enable RISC0 zkVM integration  
+- `profiling`: Enable advanced profiling capabilities
+
+## Notes
+
+- All benchmarks focus on ZKVM execution, not native Rust performance
+- Actual cycle counts are measured within zkVM environments
+- Performance data is specific to constraint system execution
+- Production deployment requires proper zkVM infrastructure setup
+```
+
+#### `zkvm_demo`
+Interactive demonstration of ZKVM capabilities:
+- Real-time proof generation
+- Verification process demonstration
+- Performance characteristic display
 - Pattern matching efficiency
 - DFA processing benchmarks
 - Complex pattern analysis
@@ -167,9 +318,9 @@ profiling_results/
 ├── regex_profiler_output.txt          # Regex profiler console output
 ├── email_flamegraph.svg               # CPU profiling visualization
 ├── regex_flamegraph.svg               # Regex CPU profiling
-├── email_bench_flamegraph.svg         # Email benchmark flamegraph
-├── regex_bench_flamegraph.svg         # Regex benchmark flamegraph
-└── target/criterion/                  # Detailed benchmark reports
+├── zkvm_cycles_report.txt             # ZKVM cycle counting results
+├── zkvm_memory_report.txt             # ZKVM memory usage analysis
+└── target/zkvm_results/               # ZKVM performance reports
 ```
 
 ## Configuration
@@ -201,9 +352,9 @@ panic = "abort"     # Remove panic unwind code
 ## Integration
 
 This profiling suite integrates with:
-- Criterion benchmarking framework
-- Flamegraph visualization tools
-- Valgrind memory analysis (Linux)
-- dhat heap profiling (cross-platform)
+- RISC0 and SP1 ZKVM frameworks for cycle counting
+- Flamegraph visualization tools for CPU profiling
+- dhat heap profiling for memory analysis (cross-platform)
+- ZKVM-specific memory estimation tools
 
-For detailed analysis workflows, see the main project documentation.
+For detailed ZKVM optimization workflows, see the main project documentation.

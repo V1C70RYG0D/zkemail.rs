@@ -2,7 +2,12 @@
 name = "zkemail-profiling"
 version = "0.1.0"
 edition = "2021"
-description = "Profiling tools for the zkemail crate"
+description = "ZKVM-specific profiling tools for the zkemail crate"
+
+[features]
+default = []
+sp1 = ["zkemail-core/sp1", "sp1-sdk"]
+risc0 = ["zkemail-core/risc0", "risc0-zkvm"]
 
 [dependencies]
 zkemail-core = { path = "../core" }
@@ -14,29 +19,22 @@ regex-automata = { workspace = true }
 slog = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+chrono = { workspace = true }
 
-# Binary executables for profiling
-[[bin]]
-name = "email_profiler"
-path = "src/bin/email_profiler.rs"
-
-[[bin]]
-name = "regex_profiler"
-path = "src/bin/regex_profiler.rs"
-
-[[bin]]
-name = "generate_regex_data"
-path = "src/bin/generate_regex_data.rs"
+# ZKVM framework dependencies
+risc0-zkvm = { workspace = true, optional = true }
+sp1-sdk = { workspace = true, optional = true }
+borsh = { workspace = true }
 
 [lib]
 name = "zkemail_profiling"
 path = "src/lib.rs"
 
-# Benchmarks for continuous performance tracking
+# ZKVM integration examples
 [[bench]]
-name = "email_benchmarks"
+name = "zkvm_benchmarks"
 harness = false
 
-[[bench]]
-name = "regex_benchmarks" 
-harness = false
+[[bin]]
+name = "zkvm_benchmarks"
+path = "src/bin/zkvm_benchmarks.rs"

@@ -1,12 +1,13 @@
-mod dkim;
-mod email;
-mod file;
-mod generator;
-mod io;
-mod regex;
-mod structs;
+//! ZKVM-specific helper functions for zkemail
+//!
+//! This crate provides ZKVM-compatible utilities for email processing,
+//! key format conversion, and data generation.
 
-pub use file::*;
+pub mod dkim;
+pub mod generator;
+pub mod io;
+
+// Re-export main APIs
+pub use dkim::*;
 pub use generator::*;
 pub use io::*;
-pub use structs::*;

@@ -1,8 +1,11 @@
 use regex_automata::dfa::{dense, regex::Regex};
-use std::borrow::Cow;
 
 use crate::CompiledRegex;
 
+/// SP1-specific memory alignment for optimal performance
+///
+/// SP1 ZKVM requires 4-byte aligned memory access for optimal performance.
+/// This function ensures data is properly aligned to prevent performance penalties.
 #[cfg(feature = "sp1")]
 fn align_slice(bytes: &[u8]) -> Vec<u8> {
     let mut aligned = Vec::with_capacity(bytes.len() + 4);
@@ -13,190 +16,137 @@ fn align_slice(bytes: &[u8]) -> Vec<u8> {
     aligned
 }
 
-/// Process a single regex part for optimization and reuse.
-fn process_single_regex_part(part: &CompiledRegex, input: &[u8]) -> Result<Vec<String>, ()> {
-    // Optimize memory usage based on feature flag
-    #[cfg(feature = "sp1")]
-    let (fwd_data, bwd_data) = {
-        let fwd = align_slice(&part.verify_re.fwd);
-        let bwd = align_slice(&part.verify_re.bwd);
-        (Cow::Owned(fwd), Cow::Owned(bwd))
-    };
-
-    #[cfg(not(feature = "sp1"))]
-    let (fwd_data, bwd_data) = {
-        (
-            Cow::Borrowed(&part.verify_re.fwd),
-            Cow::Borrowed(&part.verify_re.bwd),
-        )
-    };
-
-    // Parse DFAs with better error handling
-    let fwd = dense::DFA::from_bytes(&fwd_data).map_err(|_| ())?.0;
-
-    let bwd = dense::DFA::from_bytes(&bwd_data).map_err(|_| ())?.0;
-
-    let re = Regex::builder().build_from_dfas(fwd, bwd);
-
-    // Find matches with early termination
-    let matches: Vec<_> = re.find_iter(input).collect();
-    if matches.len() != 1 {
-        return Err(());
-    }
-
-    // Process captures with optimized string operations
-    let mut captures_result = Vec::new();
-    if let Some(captures) = part.captures.as_ref() {
-        let match_range = matches[0].range();
-        let matched_bytes = &input[match_range];
-
-        // Convert to string once and reuse
-        let matched_str = std::str::from_utf8(matched_bytes).map_err(|_| ())?;
-
-        for capture in captures {
-            // Use optimized string searching
-            if !matched_str.contains(capture) {
-                return Err(());
-            }
-
-            // Count matches efficiently
-            let match_count = matched_str.matches(capture).count();
-            if match_count != 1 {
-                return Err(());
-            }
-
-            captures_result.push(capture.clone());
-        }
-    }
-
-    Ok(captures_result)
-}
-
-/// Optimized regex processing with reduced allocations and improved performance.
+/// ZKVM-optimized regex processing with early termination and minimal allocations
 ///
-/// Key optimizations:
-/// - Avoids unnecessary clones when SP1 feature is disabled
-/// - Uses early returns to short-circuit on failure
-/// - Pre-allocates result vectors with known capacity
-/// - Optimized string matching with better algorithms
+/// Optimizations:
+/// - Early termination on first mismatch
+/// - Pre-allocated vectors with capacity estimation
+/// - Platform-specific memory alignment (SP1)
+/// - Minimal cycle usage with efficient pattern matching
+/// - Sequential processing optimized for ZKVM constraints
 pub fn process_regex_parts(
     compiled_regexes: &[CompiledRegex],
     input: &[u8],
 ) -> (bool, Vec<String>) {
-    // Early return for empty inputs
-    if compiled_regexes.is_empty() {
-        return (true, Vec::new());
-    }
-
-    // For small numbers of regexes, use sequential processing
-    if compiled_regexes.len() <= 2 {
-        return process_regex_parts_sequential(compiled_regexes, input);
-    }
-
-    // Use parallel processing for larger sets
-    process_regex_parts_parallel(compiled_regexes, input)
-}
-
-/// Sequential processing optimized for small regex sets.
-fn process_regex_parts_sequential(
-    compiled_regexes: &[CompiledRegex],
-    input: &[u8],
-) -> (bool, Vec<String>) {
     // Pre-allocate with estimated capacity to reduce reallocations
-    let estimated_matches = compiled_regexes
-        .iter()
-        .map(|r| r.captures.as_ref().map_or(0, |c| c.len()))
-        .sum();
-    let mut regex_matches = Vec::with_capacity(estimated_matches);
+    let mut regex_matches = Vec::with_capacity(compiled_regexes.len() * 2);
 
     for part in compiled_regexes {
-        match process_single_regex_part(part, input) {
-            Ok(mut captures) => regex_matches.append(&mut captures),
-            Err(()) => return (false, regex_matches),
+        // Platform-specific memory alignment for optimal performance
+        #[cfg(feature = "sp1")]
+        let fwd = align_slice(&part.verify_re.fwd);
+        #[cfg(not(feature = "sp1"))]
+        let fwd = part.verify_re.fwd.clone();
+
+        #[cfg(feature = "sp1")]
+        let bwd = align_slice(&part.verify_re.bwd);
+        #[cfg(not(feature = "sp1"))]
+        let bwd = part.verify_re.bwd.clone();
+
+        // Build regex with error handling for ZKVM robustness
+        let fwd_dfa = match dense::DFA::from_bytes(&fwd) {
+            Ok((dfa, _)) => dfa,
+            Err(_) => return (false, regex_matches), // Early termination on error
+        };
+
+        let bwd_dfa = match dense::DFA::from_bytes(&bwd) {
+            Ok((dfa, _)) => dfa,
+            Err(_) => return (false, regex_matches), // Early termination on error
+        };
+
+        let re = Regex::builder().build_from_dfas(fwd_dfa, bwd_dfa);
+
+        // Collect matches with early termination optimization
+        let matches: Vec<_> = re.find_iter(input).collect();
+
+        // ZKVM optimization: Early termination for invalid match count
+        if matches.len() != 1 {
+            return (false, regex_matches);
+        }
+
+        // Process captures with optimized string handling
+        if let Some(ref captures) = part.captures {
+            for capture in captures.iter() {
+                // ZKVM-optimized string conversion with error handling
+                let matched_str = match std::str::from_utf8(&input[matches[0].range()]) {
+                    Ok(s) => s,
+                    Err(_) => return (false, regex_matches), // Early termination on UTF-8 error
+                };
+
+                // Efficient capture validation with early termination
+                if !matched_str.contains(capture) || matched_str.matches(capture).count() != 1 {
+                    return (false, regex_matches);
+                }
+
+                // Direct string allocation for ZKVM compatibility
+                regex_matches.push(capture.to_string());
+            }
         }
     }
 
     (true, regex_matches)
 }
 
-/// Parallel processing for larger regex sets with optimized collection.
-fn process_regex_parts_parallel(
+/// ZKVM-optimized batch regex processing
+///
+/// Optimizations:
+/// - Sequential processing only (no parallelization in ZKVM)
+/// - Pre-allocated result vectors
+/// - Early termination on first failure
+/// - Minimal memory overhead per batch item
+pub fn process_regex_parts_batch(
     compiled_regexes: &[CompiledRegex],
-    input: &[u8],
-) -> (bool, Vec<String>) {
-    use rayon::prelude::*;
-    
-    // Process all regex parts in parallel with early termination on failure
-    let results: Result<Vec<Vec<String>>, ()> = compiled_regexes
-        .par_iter()
-        .map(|part| process_single_regex_part(part, input))
-        .collect();
+    inputs: &[&[u8]],
+) -> Vec<(bool, Vec<String>)> {
+    let mut results = Vec::with_capacity(inputs.len());
 
-    match results {
-        Ok(captures_list) => {
-            // Flatten results efficiently
-            let total_capacity: usize = captures_list.iter().map(|v| v.len()).sum();
-            let mut regex_matches = Vec::with_capacity(total_capacity);
-            
-            for mut captures in captures_list {
-                regex_matches.append(&mut captures);
-            }
-            
-            (true, regex_matches)
-        }
-        Err(()) => (false, Vec::new()),
+    for input in inputs {
+        let result = process_regex_parts(compiled_regexes, input);
+        results.push(result);
+
+        // Optional: Early termination for batch processing if needed
+        // if !result.0 { break; }
     }
+
+    results
 }
 
-/// Cache-optimized regex processing for repeated patterns.
-///
-/// Uses thread-local caching to avoid recompiling the same regex patterns
-/// repeatedly, which is common in email processing scenarios.
-pub fn process_regex_parts_cached(
-    compiled_regexes: &[CompiledRegex],
-    input: &[u8],
-) -> (bool, Vec<String>) {
-    use std::sync::Mutex;
-    use std::collections::HashMap;
-    
-    thread_local! {
-        static REGEX_CACHE: Mutex<HashMap<u64, bool>> = Mutex::new(HashMap::new());
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_regex_parts_empty() {
+        let regexes = vec![];
+        let input = b"test input";
+        let (success, matches) = process_regex_parts(&regexes, input);
+
+        assert!(success);
+        assert!(matches.is_empty());
     }
-    
-    // Create a cache key from the regex patterns
-    let cache_key = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        for regex in compiled_regexes {
-            regex.verify_re.fwd.hash(&mut hasher);
-            regex.verify_re.bwd.hash(&mut hasher);
-        }
-        input.hash(&mut hasher);
-        hasher.finish()
-    };
-    
-    // Check cache for known failures
-    let cache_hit = REGEX_CACHE.with(|cache| {
-        let cache = cache.lock().unwrap();
-        cache.get(&cache_key).copied()
-    });
-    
-    if let Some(false) = cache_hit {
-        return (false, Vec::new());
+
+    #[test]
+    fn test_process_regex_parts_batch() {
+        let regexes = vec![];
+        let inputs = vec![b"test1".as_slice(), b"test2".as_slice()];
+        let results = process_regex_parts_batch(&regexes, &inputs);
+
+        assert_eq!(results.len(), 2);
+        assert!(results[0].0);
+        assert!(results[1].0);
     }
-    
-    // Process normally
-    let result = process_regex_parts(compiled_regexes, input);
-    
-    // Cache the result if it's a failure (to avoid reprocessing)
-    if !result.0 {
-        REGEX_CACHE.with(|cache| {
-            let mut cache = cache.lock().unwrap();
-            if cache.len() < 1000 {  // Limit cache size
-                cache.insert(cache_key, false);
-            }
-        });
+
+    #[cfg(feature = "sp1")]
+    #[test]
+    fn test_align_slice() {
+        let data = vec![1, 2, 3, 4, 5];
+        let aligned = align_slice(&data);
+
+        // Check that alignment is correct
+        assert_eq!(aligned.as_ptr() as usize % 4, 0);
+
+        // Check that original data is preserved (after padding)
+        let padding_len = aligned.len() - data.len();
+        assert_eq!(&aligned[padding_len..], &data);
     }
-    
-    result
 }

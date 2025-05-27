@@ -1,95 +1,72 @@
-use anyhow::{anyhow, Result};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
-use cfdkim::{dns::from_tokio_resolver, public_key::retrieve_public_key};
-use chrono::{DateTime, Utc};
-use reqwest::Client;
 use rsa::{pkcs1::EncodeRsaPublicKey, pkcs8::DecodePublicKey, RsaPublicKey};
-use serde::Deserialize;
-use slog::Logger;
-use trust_dns_resolver::{
-    config::{NameServerConfigGroup, ResolverConfig, ResolverOpts},
-    TokioAsyncResolver,
-};
 
-const ARCHIVE_API: &str = "https://archive.prove.email/api";
-
-#[derive(Debug, Deserialize)]
-struct DkimKeyResponse {
-    value: String,
-    selector: String,
-    #[serde(rename = "firstSeenAt")]
-    _first_seen_at: DateTime<Utc>,
-    #[serde(rename = "lastSeenAt")]
-    _last_seen_at: DateTime<Utc>,
-}
-
-fn convert_to_pkcs1(key_b64: &str) -> Result<Vec<u8>> {
+/// ZKVM-compatible DKIM key format conversion
+///
+/// Converts PKCS#8 base64-encoded public keys to PKCS#1 format
+/// suitable for ZKVM DKIM verification
+pub fn convert_to_pkcs1(key_b64: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let pkcs8_der = STANDARD.decode(key_b64)?;
-    RsaPublicKey::from_public_key_der(&pkcs8_der)?
-        .to_pkcs1_der()
-        .map(|der| der.as_bytes().to_vec())
-        .map_err(Into::into)
+    let rsa_key = RsaPublicKey::from_public_key_der(&pkcs8_der)?;
+    let pkcs1_der = rsa_key.to_pkcs1_der()?;
+    Ok(pkcs1_der.as_bytes().to_vec())
 }
 
-pub async fn fetch_dkim_key(
-    logger: &Logger,
-    domain: &str,
-    selector: &str,
-) -> Result<(Vec<u8>, String)> {
-    // Try DNS first
-    let resolver = TokioAsyncResolver::tokio(
-        ResolverConfig::from_parts(
-            None,
-            vec![],
-            NameServerConfigGroup::from_ips_clear(&["8.8.8.8".parse()?], 53, true),
-        ),
-        ResolverOpts::default(),
-    );
-    let resolver = from_tokio_resolver(resolver);
-
-    match retrieve_public_key(logger, resolver, domain.to_string(), selector.to_string()).await {
-        Ok(public_key) => Ok((public_key.to_vec(), public_key.key_type().to_string())),
-        Err(_) => {
-            // Fallback to archive
-            let keys: Vec<DkimKeyResponse> = Client::new()
-                .get(format!("{}/key?domain={}", ARCHIVE_API, domain))
-                .send()
-                .await?
-                .json()
-                .await?;
-
-            let key = keys
-                .iter()
-                .find(|k| {
-                    k.selector == selector && k.value.contains("p=") && !k.value.ends_with("p=")
-                })
-                .ok_or_else(|| anyhow!("No valid DKIM key found"))?;
-
-            let (key_type, public_key) = key.value.split(';').map(str::trim).fold(
-                (String::new(), String::new()),
-                |(mut kt, mut pk), part| {
-                    if let Some(stripped) = part.strip_prefix("k=") {
-                        kt = stripped.to_string();
-                    }
-                    if let Some(stripped) = part.strip_prefix("p=") {
-                        pk = stripped.to_string();
-                    }
-                    (kt, pk)
-                },
-            );
-
-            if public_key.is_empty() {
-                return Err(anyhow!("No public key found"));
+/// ZKVM-compatible key validation
+///
+/// Validates that a key is in proper format for ZKVM processing
+pub fn validate_key_format(key_bytes: &[u8], key_type: &str) -> bool {
+    match key_type {
+        "rsa" => {
+            // Basic validation for PKCS#1 format
+            if key_bytes.len() < 10 {
+                return false;
             }
-
-            let key_bytes = if key_type == "rsa" {
-                convert_to_pkcs1(&public_key)?
-            } else {
-                STANDARD.decode(&public_key)?
-            };
-
-            Ok((key_bytes, key_type))
+            // Check for SEQUENCE tag (0x30) at start
+            key_bytes[0] == 0x30
         }
+        "ed25519" => {
+            // Ed25519 keys should be 32 bytes
+            key_bytes.len() == 32
+        }
+        _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_key_format_rsa() {
+        // Valid PKCS#1 format (starts with SEQUENCE and sufficient length)
+        let valid_key = vec![0x30, 0x48, 0x02, 0x41, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05];
+        assert!(validate_key_format(&valid_key, "rsa"));
+
+        // Invalid format (wrong start byte)
+        let invalid_key = vec![0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09];
+        assert!(!validate_key_format(&invalid_key, "rsa"));
+
+        // Too short
+        let short_key = vec![0x30, 0x48];
+        assert!(!validate_key_format(&short_key, "rsa"));
+    }
+
+    #[test]
+    fn test_validate_key_format_ed25519() {
+        // Valid Ed25519 key (32 bytes)
+        let valid_key = vec![0u8; 32];
+        assert!(validate_key_format(&valid_key, "ed25519"));
+
+        // Invalid length
+        let invalid_key = vec![0u8; 16];
+        assert!(!validate_key_format(&invalid_key, "ed25519"));
+    }
+
+    #[test]
+    fn test_validate_key_format_unknown() {
+        let key = vec![0u8; 32];
+        assert!(!validate_key_format(&key, "unknown"));
     }
 }

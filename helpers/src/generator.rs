@@ -1,85 +1,120 @@
-use anyhow::{anyhow, Result};
-use cfdkim::{validate_header, verify_email_with_key, DkimPublicKey};
-use mailparse::MailHeaderMap;
-use slog::{o, Discard, Logger};
-use zkemail_core::{Email, EmailWithRegex, ExternalInput, PublicKey, RegexInfo};
+use zkemail_core::*;
 
-use crate::{
-    dkim::fetch_dkim_key, email::extract_email_body, regex::compile_regex_parts, RegexConfig,
-};
-
-pub async fn generate_email_inputs(
-    from_domain: &str,
-    raw_email: &[u8],
-    external_inputs: Option<Vec<ExternalInput>>,
-) -> Result<Email> {
-    let logger = Logger::root(Discard, o!());
-    let email = mailparse::parse_mail(raw_email)?;
-
-    let dkim_headers = email.headers.get_all_headers("DKIM-Signature");
-    if dkim_headers.is_empty() {
-        return Err(anyhow!("No DKIM signatures found"));
+/// ZKVM-compatible email data generator
+///
+/// Generates email structures suitable for ZKVM processing
+/// without any async or network dependencies
+pub fn generate_email_inputs(
+    domain: &str,
+    raw_email: Vec<u8>,
+    public_key_bytes: Vec<u8>,
+    key_type: &str,
+    external_inputs: Vec<ExternalInput>,
+) -> Email {
+    Email {
+        from_domain: domain.to_string(),
+        raw_email,
+        public_key: PublicKey {
+            key: public_key_bytes,
+            key_type: key_type.to_string(),
+        },
+        external_inputs,
     }
-
-    for header in dkim_headers.iter() {
-        let dkim_header = match validate_header(&String::from_utf8_lossy(header.get_value_raw())) {
-            Ok(h) if h.get_required_tag("d").to_lowercase() == from_domain.to_lowercase() => h,
-            _ => {
-                continue;
-            }
-        };
-
-        let selector = dkim_header.get_required_tag("s");
-        if let Ok((key, key_type)) = fetch_dkim_key(&logger, from_domain, &selector).await {
-            if let Ok(public_key) = DkimPublicKey::try_from_bytes(&key, &key_type) {
-                if let Ok(result) = verify_email_with_key(&logger, from_domain, &email, public_key)
-                {
-                    if result.with_detail().starts_with("pass") {
-                        return Ok(Email {
-                            from_domain: from_domain.to_string(),
-                            raw_email: raw_email.to_vec(),
-                            public_key: PublicKey { key, key_type },
-                            external_inputs: external_inputs.unwrap_or_default(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    Err(anyhow!("No valid DKIM key found for any signature"))
 }
 
-pub async fn generate_email_with_regex_inputs(
-    from_domain: &str,
-    raw_email: &[u8],
-    regex_config: &RegexConfig,
-    external_inputs: Option<Vec<ExternalInput>>,
-) -> Result<EmailWithRegex> {
-    let email_inputs = generate_email_inputs(from_domain, raw_email, external_inputs).await?;
-    let email = mailparse::parse_mail(&email_inputs.raw_email)?;
-
-    let header_bytes = email.get_headers().get_raw_bytes();
-    let email_body = extract_email_body(&email)?;
-
-    let body_parts = regex_config
-        .body_parts
-        .as_ref()
-        .filter(|parts| !parts.is_empty())
-        .map(|parts| compile_regex_parts(parts, &email_body))
-        .transpose()?;
-    let header_parts = regex_config
-        .header_parts
-        .as_ref()
-        .filter(|parts| !parts.is_empty())
-        .map(|parts| compile_regex_parts(parts, header_bytes))
-        .transpose()?;
-
-    Ok(EmailWithRegex {
-        email: email_inputs,
+/// ZKVM-compatible email with regex generator
+///
+/// Generates EmailWithRegex structures for ZKVM regex processing
+pub fn generate_email_with_regex_inputs(
+    email: Email,
+    header_regexes: Option<Vec<CompiledRegex>>,
+    body_regexes: Option<Vec<CompiledRegex>>,
+) -> EmailWithRegex {
+    EmailWithRegex {
+        email,
         regex_info: RegexInfo {
-            header_parts,
-            body_parts,
+            header_parts: header_regexes,
+            body_parts: body_regexes,
         },
-    })
+    }
+}
+
+/// ZKVM-compatible DFA generator for testing
+///
+/// Creates simple DFA patterns for ZKVM regex testing
+pub fn generate_test_dfa() -> DFA {
+    DFA {
+        fwd: vec![
+            // Simple DFA bytes for testing
+            0x30, 0x10, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00,
+        ],
+        bwd: vec![
+            // Reverse DFA bytes for testing
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
+            0x10, 0x30,
+        ],
+    }
+}
+
+/// ZKVM-compatible regex compilation for testing
+///
+/// Creates CompiledRegex structures for ZKVM testing
+pub fn generate_test_compiled_regex(captures: Option<Vec<String>>) -> CompiledRegex {
+    CompiledRegex {
+        verify_re: generate_test_dfa(),
+        captures,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_email_inputs() {
+        let email = generate_email_inputs(
+            "example.com",
+            b"test email".to_vec(),
+            vec![0u8; 64],
+            "rsa",
+            vec![ExternalInput {
+                name: "test".to_string(),
+                value: Some("value".to_string()),
+                max_length: 100,
+            }],
+        );
+
+        assert_eq!(email.from_domain, "example.com");
+        assert_eq!(email.raw_email, b"test email");
+        assert_eq!(email.public_key.key_type, "rsa");
+        assert_eq!(email.external_inputs.len(), 1);
+    }
+
+    #[test]
+    fn test_generate_email_with_regex_inputs() {
+        let base_email = generate_email_inputs(
+            "example.com",
+            b"test".to_vec(),
+            vec![0u8; 32],
+            "rsa",
+            vec![],
+        );
+
+        let regex_email = generate_email_with_regex_inputs(
+            base_email,
+            Some(vec![generate_test_compiled_regex(None)]),
+            None,
+        );
+
+        assert!(regex_email.regex_info.header_parts.is_some());
+        assert!(regex_email.regex_info.body_parts.is_none());
+    }
+
+    #[test]
+    fn test_generate_test_dfa() {
+        let dfa = generate_test_dfa();
+        assert_eq!(dfa.fwd.len(), 16);
+        assert_eq!(dfa.bwd.len(), 16);
+    }
 }

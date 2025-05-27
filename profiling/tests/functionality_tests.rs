@@ -160,15 +160,12 @@ mod tests {
 
     #[test]
     fn test_malformed_email() {
-        let malformed_email = b"This is not a valid email format".to_vec();
-
-        // The parser should not crash on malformed input
+        let malformed_email = b"This is not a valid email format".to_vec();        // The parser should not crash on malformed input
         let result = parse_mail(&malformed_email);
         // It might parse this as a valid email with just body content, so we don't assert error
         if let Ok(_parsed) = result {
             // This is acceptable - parser can interpret this as body-only message
-            // so we'll just check it doesn't crash
-            assert!(true, "Parser handled malformed input gracefully");
+            // so we'll just check it doesn't crash - no assertion needed
         } else {
             // Error is also acceptable for malformed input
             assert!(

@@ -137,10 +137,9 @@ mod email_parsing_tests {
     }
 
     // Test malformed email inputs
-    #[test]
-    fn test_malformed_headers() {
+    #[test]    fn test_malformed_headers() {
         // Test email with malformed headers
-        let malformed_headers = vec![
+        let malformed_headers = [
             // Missing colon in header
             b"From sender@example.com\r\nSubject: Test\r\n\r\nBody".to_vec(),
             // Unterminated header line
@@ -156,20 +155,20 @@ mod email_parsing_tests {
                 Ok(parsed) => {
                     // If it parses, it should not crash subsequent operations
                     let _ = extract_email_body(&parsed);
-                    assert!(true, "Malformed email {} handled gracefully", i);
+                    // Logging that malformed email was handled gracefully
+                    eprintln!("Malformed email {} handled gracefully", i);
                 }
                 Err(_) => {
                     // Error is acceptable for malformed input
-                    assert!(true, "Malformed email {} correctly rejected", i);
+                    eprintln!("Malformed email {} correctly rejected", i);
                 }
             }
         }
     }
 
-    #[test]
-    fn test_boundary_edge_cases() {
+    #[test]    fn test_boundary_edge_cases() {
         // Test various boundary edge cases
-        let boundary_cases = vec![
+        let boundary_cases = [
             // Missing final boundary
             b"Content-Type: multipart/mixed; boundary=\"test\"\r\n\r\n--test\r\nContent-Type: text/plain\r\n\r\nContent".to_vec(),
             // Boundary in content
@@ -184,10 +183,10 @@ mod email_parsing_tests {
                 Ok(parsed) => {
                     // Should not crash when extracting body
                     let _ = extract_email_body(&parsed);
-                    assert!(true, "Boundary case {} handled", i);
+                    eprintln!("Boundary case {} handled", i);
                 }
                 Err(_) => {
-                    assert!(true, "Boundary case {} appropriately rejected", i);
+                    eprintln!("Boundary case {} appropriately rejected", i);
                 }
             }
         }
@@ -198,14 +197,14 @@ mod email_parsing_tests {
         // Test empty email
         let empty_email = b"";
         let result = parse_mail(empty_email);
-        match result {
-            Ok(parsed) => {
+        match result {            Ok(parsed) => {
                 assert!(
                     parsed.headers.is_empty() || parsed.get_body().unwrap_or_default().is_empty()
                 );
             }
             Err(_) => {
-                assert!(true, "Empty email appropriately rejected");
+                // Empty email rejection is expected behavior
+                eprintln!("Empty email appropriately rejected");
             }
         }
 
@@ -218,7 +217,8 @@ mod email_parsing_tests {
                 assert!(body.contains("Minimal body"));
             }
             Err(_) => {
-                assert!(true, "Minimal email handling is implementation-dependent");
+                // Minimal email handling varies by implementation
+                eprintln!("Minimal email handling is implementation-dependent");
             }
         }
     }
@@ -270,9 +270,7 @@ mod email_parsing_tests {
                             Content-Type: text/plain; charset=UTF-8\r\n\
                             \r\n\
                             Hello 世界! Bonjour 🌍!"
-            .as_bytes();
-
-        let result = parse_mail(unicode_email);
+            .as_bytes();        let result = parse_mail(unicode_email);
         match result {
             Ok(parsed) => {
                 let body = parsed.get_body().unwrap_or_default();
@@ -280,15 +278,15 @@ mod email_parsing_tests {
                 assert!(!body.is_empty(), "Should extract Unicode body content");
             }
             Err(_) => {
-                assert!(true, "Unicode handling may vary by implementation");
+                // Unicode handling varies by implementation
+                eprintln!("Unicode handling may vary by implementation");
             }
         }
     }
 
-    #[test]
-    fn test_malformed_content_type() {
+    #[test]    fn test_malformed_content_type() {
         // Test various malformed Content-Type headers
-        let malformed_ct_cases = vec![
+        let malformed_ct_cases = [
             b"Content-Type: text\r\n\r\nBody".to_vec(),
             b"Content-Type: text/\r\n\r\nBody".to_vec(),
             b"Content-Type: text/plain; invalid\r\n\r\nBody".to_vec(),
@@ -301,10 +299,10 @@ mod email_parsing_tests {
                 Ok(parsed) => {
                     // Should not crash when processing
                     let _body = extract_email_body(&parsed);
-                    assert!(true, "Malformed Content-Type {} handled gracefully", i);
+                    eprintln!("Malformed Content-Type {} handled gracefully", i);
                 }
                 Err(_) => {
-                    assert!(true, "Malformed Content-Type {} appropriately rejected", i);
+                    eprintln!("Malformed Content-Type {} appropriately rejected", i);
                 }
             }
         }

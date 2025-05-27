@@ -6,8 +6,8 @@ description = "Core functionality for the zkemail crate"
 
 [features]
 default = []
-sp1 = []
-risc0 = []
+sp1 = ["sp1-sdk"]
+risc0 = ["risc0-zkvm"]
 
 [dependencies]
 alloy-sol-types = { workspace = true }
@@ -19,7 +19,10 @@ rsa = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 slog = { workspace = true }
-rayon = { workspace = true }
+
+# ZKVM-specific dependencies
+risc0-zkvm = { workspace = true, optional = true }
+sp1-sdk = { workspace = true, optional = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
